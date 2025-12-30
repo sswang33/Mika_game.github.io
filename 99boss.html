@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>九九乘法：魔王穩定版</title>
+    <style>
+        :root { --red: #ff4757; --blue: #54a0ff; --green: #2ed573; --stone: #636e72; --magic: #a29bfe; }
+        body { background: #2f3640; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; overflow: hidden; }
+        
+        .stats-area { width: 340px; display: flex; justify-content: space-between; margin-bottom: 5px; font-weight: bold; }
+        
+        /* 遊戲區域固定尺寸，避免方塊飛出去 */
+        #game-board { 
+            width: 340px; height: 460px; background: #353b48; border: 8px solid #718093; 
+            border-radius: 15px; display: flex; flex-wrap: wrap-reverse; align-content: flex-start; gap: 4px; padding: 6px;
+            box-sizing: border-box;
+        }
+
+        .block {
+            width: 76px; height: 50px; border-radius: 8px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;
+            box-shadow: inset 0 -3px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        .color-red { background-color: var(--red); }
+        .color-blue { background-color: var(--blue); }
+        .color-green { background-color: var(--green); }
+
+        /* 魔王寬度佔兩格，顏色深沉 */
+        .block.boss {
+            width: 158px; background: #2d3436 !important; border: 4px solid gold; 
+            animation: boss-pulse 1s infinite alternate;
+        }
+        @keyframes boss-pulse { from { transform: scale(1); } to { transform: scale(1.02); } }
+        
+        /* 準備發射的紅光閃爍 */
+        .boss-charging { animation: charge 0.3s infinite !important; background-color: white !important; color: red !important; }
+        @keyframes charge { 0% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .block.stone { background: var(--stone) !important; color: #2f3640; cursor: not-allowed; border: none; }
+        .block.selected { border: 4px solid white; box-shadow: 0 0 15px white; z-index: 99; }
+        
+        .hp-text { font-size: 10px; color: #fab1a0; }
+        .boss-tag { position: absolute; top: -10px; background: gold; color: black; font-size: 10px; padding: 0 5px; border-radius: 5px; }
+
+        #reward-zone { margin: 10px 0; text-align: center; height: 90px; }
+        .potion-btn { background: var(--magic); border: none; padding: 8px 15px; border-radius: 20px; color: white; font-weight: bold; cursor: pointer; display: none; margin-bottom: 10px; }
+        .dot { width: 12px; height: 12px; border-radius: 50%; background: #444; display: inline-block; margin: 0 2px; }
+        .dot.active { background: #f1c40f; box-shadow: 0 0 5px #f1c40f; }
+
+        #ans-input { font-size: 32px; width: 140px; text-align: center; border-radius: 10px; border: 4px solid #00a8ff; outline: none; }
+        .exploding { transform: scale(0); opacity: 0; }
+    </style>
+</head>
+<body>
+
+    <div class="stats-area">
+        <span>💰 分數: <span id="score">0</span></span>
+        <span>📏 滿載: <span id="height">0</span>/8</span>
+    </div>
+    
+    <div id="game-board"></div>
+
+    <div id="reward-zone">
+        <button id="potion-btn" class="potion-btn" onclick="usePotion()">✨ 使用藥水 (復原方塊)</button>
+        <div id="combo-text" style="font-size: 14px; color: #f1c40f;">連擊進度：5 題換藥水</div>
+        <div id="combo-dots">
+            <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+    </div>
+
+    <input type="number" id="ans-input" placeholder="?" autocomplete="off">
+    <p style="font-size: 12px; color: #ff7675; margin-top: 10px;">魔王出現後每隔幾秒會發射新方塊！</p>
+
+    <script>
+        const board = document.getElementById('game-board');
+        const input = document.getElementById('ans-input');
+        const colors = ['red', 'blue', 'green'];
+        let blocks = [];
+        let selected = null;
+        let score = 0;
+        let combo = 0;
+        let potionCount = 0;
+        let solvedCount = 0;
+        let bossTimers = {};
+
+        function createBlock(isFromBoss = false, forceBoss = false) {
+            if (blocks.length >= 30) { alert("Game Over! 最終分數: " + score); location.reload(); return; }
+            
+            solvedCount++;
+            // 每 15 題或隨機 10% 機率出魔王
+            const isBoss = forceBoss || (!isFromBoss && solvedCount > 0 && (solvedCount % 12 === 0 || Math.random() < 0.08));
+            
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const n1 = Math.floor(Math.random() * 8) + 2;
+            const n2 = Math.floor(Math.random() * 8) + 2;
+            
+            const b = { 
+                id: Math.random(), ans: n1*n2, isStone: false, isBoss: isBoss,
+                color: color, hp: isBoss ? 3 : 1, 
+                el: document.createElement('div') 
+            };
+            
+            b.el.className = `block color-${color}` + (isBoss ? ' boss' : '');
+            updateDisplay(b, n1, n2);
+            
+            b.el.onclick = () => {
+                if (b.isStone) return;
+                if (selected) selected.el.classList.remove('selected');
+                selected = b;
+                b.el.classList.add('selected');
+                input.focus();
+            };
+            
+            board.appendChild(b.el);
+            blocks.push(b);
+            
+            if (isBoss) startBossAttack(b);
+            updateStats();
+        }
+
+        function startBossAttack(boss) {
+            const timer = setInterval(() => {
+                // 如果魔王不在了，清除定時器
+                if (!blocks.find(x => x.id === boss.id)) {
+                    clearInterval(timer);
+                    return;
+                }
+                // 石化時停止發射
+                if (boss.isStone) return;
+
+                boss.el.classList.add('boss-charging');
+                setTimeout(() => {
+                    if (blocks.find(x => x.id === boss.id) && !boss.isStone) {
+                        boss.el.classList.remove('boss-charging');
+                        createBlock(true); // 發射小方塊
+                    }
+                }, 1200);
+            }, 7000); // 7秒發射一次
+            bossTimers[boss.id] = timer;
+        }
+
+        function updateDisplay(b, n1, n2) {
+            let html = `<span>${n1}×${n2}</span>`;
+            if(b.isBoss) {
+                html = `<div class="boss-tag">BOSS</div><span>${n1}×${n2}</span>`;
+                html += `<div class="hp-text">HP: ${'❤️'.repeat(b.hp)}</div>`;
+            }
+            b.el.innerHTML = html;
+        }
+
+        input.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter' && selected) {
+                const val = parseInt(input.value);
+                if (val === selected.ans) {
+                    selected.hp--;
+                    if (selected.hp <= 0) {
+                        const c = selected.color;
+                        const wasBoss = selected.isBoss;
+                        if(wasBoss) clearInterval(bossTimers[selected.id]);
+                        
+                        removeBlock(selected);
+                        if(wasBoss) triggerBlast(c);
+                        
+                        score += wasBoss ? 100 : 10;
+                        combo = Math.min(5, combo + 1);
+                        selected = null;
+                    } else {
+                        // 魔王換題
+                        const n1 = Math.floor(Math.random() * 8) + 2;
+                        const n2 = Math.floor(Math.random() * 8) + 2;
+                        selected.ans = n1 * n2;
+                        updateDisplay(selected, n1, n2);
+                        combo = Math.min(5, combo + 1);
+                    }
+                } else {
+                    // 答錯石化
+                    selected.isStone = true;
+                    selected.el.classList.add('stone');
+                    selected.el.classList.remove('selected');
+                    combo = 0;
+                    selected = null;
+                    createBlock(true); // 處罰生成
+                }
+                input.value = '';
+                checkCombo();
+                updateStats();
+            }
+        });
+
+        function triggerBlast(color) {
+            const targets = blocks.filter(b => b.color === color);
+            targets.forEach(b => {
+                b.el.classList.add('exploding');
+                setTimeout(() => b.el.remove(), 400);
+            });
+            blocks = blocks.filter(b => b.color !== color);
+        }
+
+        function removeBlock(b) {
+            b.el.remove();
+            blocks = blocks.filter(x => x.id !== b.id);
+        }
+
+        function checkCombo() {
+            if (combo >= 5) { potionCount++; combo = 0; }
+            const dots = document.querySelectorAll('.dot');
+            dots.forEach((d, i) => d.className = i < combo ? 'dot active' : 'dot');
+            document.getElementById('potion-btn').style.display = potionCount > 0 ? 'inline-block' : 'none';
+            document.getElementById('potion-btn').innerText = `✨ 使用藥水 (${potionCount})`;
+        }
+
+        function usePotion() {
+            const stone = blocks.find(b => b.isStone);
+            if (stone) {
+                stone.isStone = false;
+                stone.el.classList.remove('stone');
+                potionCount--;
+                checkCombo();
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('height').innerText = Math.ceil(blocks.length / 4);
+        }
+
+        // 初始方塊
+        for(let i=0; i<4; i++) createBlock();
+        // 自然生成速度
+        setInterval(() => createBlock(true), 8000);
+    </script>
+</body>
+</html>
